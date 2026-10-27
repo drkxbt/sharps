@@ -11,6 +11,7 @@ import {
   formatPnl,
   formatUsd,
   inCategory,
+  pageList,
   rebateShare,
   shortWallet,
   sortFlow,
@@ -259,4 +260,12 @@ test("the tape hands on each large trade once, oldest first", async () => {
   assert.deepEqual(batches, [[100_000, 200_000], [300_000]]);
   assert.ok(fetch.calls[0].includes("filter_type=CASH&filter_amount=10000"));
   assert.ok(fetch.inits.every((init) => init.cache === "no-store"), "polls skip the browser's cache");
+});
+
+test("pagers list every page up to seven, then the ends and the neighbours", () => {
+  assert.deepEqual(pageList(1, 1), [1]);
+  assert.deepEqual(pageList(3, 5), [1, 2, 3, 4, 5]);
+  assert.deepEqual(pageList(1, 12), [1, 2, 3, 4, 5, 0, 12]);
+  assert.deepEqual(pageList(6, 12), [1, 0, 5, 6, 7, 0, 12]);
+  assert.deepEqual(pageList(12, 12), [1, 0, 8, 9, 10, 11, 12]);
 });

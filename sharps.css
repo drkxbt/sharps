@@ -351,21 +351,42 @@
 .sx-spark.is-down .sx-spark-area { fill: var(--sx-down); opacity: 0.1; }
 .sx-spark-large { width: 100%; height: 72px; }
 
-.sx-more {
-  display: block;
-  min-height: 40px;
-  margin: 14px auto 0;
-  padding: 0 16px;
+/* Pages: twenty items to a page, numbers under the list. */
+.sx-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 14px;
+}
+.sx-page {
+  display: inline-grid;
+  place-items: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
   border: 0;
   border-radius: 8px;
-  background: var(--sx-bg);
-  box-shadow: inset 0 0 0 1px var(--sx-edge);
+  background: none;
+  color: var(--sx-muted);
   font-size: 13px;
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
+  transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
 }
-.sx-more:hover { background: var(--sx-hover); }
-.sx-more:active { transform: scale(0.97); }
+.sx-page:hover:not(:disabled) { color: var(--sx-text); background: var(--sx-hover); }
+.sx-page:active:not(:disabled) { transform: scale(0.96); }
+.sx-page[aria-current="page"] {
+  color: var(--sx-text);
+  background: var(--sx-bg);
+  box-shadow: inset 0 0 0 1px var(--sx-edge), 0 1px 2px rgb(0 0 0 / 0.06);
+  font-weight: 600;
+}
+.sx-page:disabled { opacity: 0.35; cursor: default; }
+.sx-page .sx-svg { width: 16px; height: 16px; }
+.sx-page-gap { min-width: 20px; color: var(--sx-faint); text-align: center; }
 
 .sx-state {
   height: 140px;
@@ -607,32 +628,48 @@
 .sx-tape .is-new td { animation: sx-new 2.4s var(--sx-ease); }
 @keyframes sx-new { from { background: var(--sx-new); } }
 
-/* ---------- Wallet panel ---------- */
+/* ---------- Wallet ---------- */
 
-.sx-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  background: rgb(10 10 12 / 0.28);
-  animation: sx-fade 200ms ease;
-}
-@keyframes sx-fade { from { opacity: 0; } }
-
+/* A card in the middle of the screen over a dimmed, softened page: it rises a little and grows into place as it
+   opens, and settles back as it closes. On a phone it is a sheet from the bottom instead. */
 .sx-wallet {
-  position: fixed;
-  inset: 0 0 0 auto;
-  z-index: 41;
+  --sx-sheet-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  width: min(560px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(86dvh, 860px);
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--sx-radius);
+  background: var(--sx-bg);
+  color: var(--sx-text);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.06), 0 40px 90px -24px rgb(0 0 0 / 0.55);
+  opacity: 1;
+  transform: none;
+  transition: opacity 180ms ease, transform 280ms var(--sx-ease), overlay 280ms allow-discrete, display 280ms allow-discrete;
+}
+.sx-wallet:not([open]) { opacity: 0; transform: translateY(10px) scale(0.96); }
+@starting-style {
+  .sx-wallet[open] { opacity: 0; transform: translateY(10px) scale(0.96); }
+}
+.sx-wallet::backdrop {
+  background: rgb(10 10 12 / 0.55);
+  backdrop-filter: blur(3px);
+  transition: background-color 280ms ease, backdrop-filter 280ms ease, overlay 280ms allow-discrete, display 280ms allow-discrete;
+}
+.sx-wallet:not([open])::backdrop { background: rgb(10 10 12 / 0); backdrop-filter: blur(0); }
+@starting-style {
+  .sx-wallet[open]::backdrop { background: rgb(10 10 12 / 0); backdrop-filter: blur(0); }
+}
+html:has(.sx-wallet[open]) { overflow: hidden; }
+
+.sx-wallet-inner {
   display: flex;
   flex-direction: column;
-  width: min(460px, 100vw);
-  overflow: hidden;
-  background: var(--sx-bg);
-  box-shadow: var(--sx-shadow), 0 0 0 1px var(--sx-line);
-  color: var(--sx-text);
-  animation: sx-slide 320ms var(--sx-ease);
+  max-height: inherit;
 }
-.sx-wallet:focus { outline: none; }
-@keyframes sx-slide { from { transform: translateX(24px); opacity: 0; } }
+.sx-grab { display: none; }
 
 .sx-wallet-head {
   display: grid;
@@ -656,6 +693,7 @@
 .sx-wallet-body {
   display: grid;
   gap: 22px;
+  min-height: 0;
   padding: 18px 20px 28px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -781,13 +819,29 @@
 
 @media (max-width: 560px) {
   .sx-wallet {
-    inset: auto 0 0;
     width: 100%;
     max-height: 92dvh;
-    border-radius: 10px 10px 0 0;
-    animation-name: sx-rise;
+    margin: auto 0 0;
+    border-radius: var(--sx-radius) var(--sx-radius) 0 0;
+    transition: transform 460ms var(--sx-sheet-ease), overlay 460ms allow-discrete, display 460ms allow-discrete;
   }
-  @keyframes sx-rise { from { transform: translateY(40px); opacity: 0; } }
+  .sx-wallet:not([open]) { opacity: 1; transform: translateY(100%); }
+  @starting-style {
+    .sx-wallet[open] { opacity: 1; transform: translateY(100%); }
+  }
+  .sx-grab {
+    display: block;
+    flex: none;
+    width: 36px;
+    height: 5px;
+    margin: 8px auto 0;
+    border-radius: 3px;
+    background: var(--sx-edge);
+  }
+  /* The top of the sheet is its handle: a finger pulls it down without scrolling the page. */
+  .sx-grab,
+  .sx-wallet-head { touch-action: none; }
+  .sx-wallet-head { padding-top: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

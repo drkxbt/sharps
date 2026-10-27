@@ -199,3 +199,19 @@ export function sparkline(values: readonly number[], width: number, height: numb
   const zero = y(0);
   return { line: `M${points.join("L")}`, area: `M0,${zero.toFixed(1)}L${points.join("L")}L${width},${zero.toFixed(1)}Z`, zero };
 }
+
+/** The page numbers a pager shows: all of them up to seven pages, otherwise the first, the last and the current
+ *  one with its neighbours, with 0 where pages are skipped. */
+export function pageList(current: number, total: number): number[] {
+  if (total <= 7) return Array.from({ length: Math.max(0, total) }, (_, index) => index + 1);
+  const shown = new Set([1, total, current - 1, current, current + 1]);
+  // Near either end, a few more pages keep the row the same length as it is in the middle.
+  if (current <= 4) for (let page = 2; page <= 5; page++) shown.add(page);
+  if (current >= total - 3) for (let page = total - 4; page < total; page++) shown.add(page);
+  const out: number[] = [];
+  for (const page of [...shown].filter((page) => page >= 1 && page <= total).sort((a, b) => a - b)) {
+    if (out.length && page - out[out.length - 1] > 1) out.push(0);
+    out.push(page);
+  }
+  return out;
+}

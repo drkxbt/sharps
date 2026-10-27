@@ -1,6 +1,6 @@
 import { CATEGORIES, client, isWallet, type Category, type Client, type ClientOptions, type Position, type Trade, type Trader, type Window } from "./api.js";
 import { displayName, EMPTY, formatAge, formatCents, formatCentsChange, formatPercent, formatPnl, formatUsd, shortWallet } from "./format.js";
-import { flow, inCategory, rebateShare, sortFlow, sparkline, trackRecord, type FlowRow, type FlowSort } from "./model.js";
+import { flow, inCategory, pageList, rebateShare, sortFlow, sparkline, trackRecord, type FlowRow, type FlowSort } from "./model.js";
 import { tape, type Tape } from "./tape.js";
 
 export type View = "board" | "flow" | "tape";
@@ -74,6 +74,8 @@ const FLOW_SORTS: { key: FlowSort; label: string; hint: string }[] = [
   { key: "recent", label: "Latest", hint: "Traded most recently" },
 ];
 const TAPE_SIZES = [1000, 5000, 10_000, 50_000, 100_000];
+// Long lists show twenty at a time, with page numbers under them.
+const PAGE = 20;
 const BOARD_PREFIX: Record<Window, string> = { day: "today's", week: "this week's", month: "this month's", all: "the all-time" };
 const PNL_WINDOWS: Record<Window, { interval: "1d" | "1w" | "1m" | "all"; fidelity: "1h" | "3h" | "1d" }> = {
   day: { interval: "1d", fidelity: "1h" },
@@ -90,6 +92,7 @@ const ICONS = {
   bell: '<path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5H5Z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>',
   bellOn: '<path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5H5Z" fill="currentColor"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
+  back: '<path d="m15 6-6 6 6 6"/>',
   retry: '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4.5v4.2h4.2"/>',
   sharp: '<path d="M12 3.5 14.4 9l5.9.5-4.5 3.9 1.4 5.8L12 16.1 6.8 19.2l1.4-5.8L3.7 9.5 9.6 9Z" fill="currentColor"/>',
 };
@@ -180,16 +183,14 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
   boardHead.append(tableRow("tr", [headCell("#", "sx-rank"), headCell("Trader", "sx-who"), headCell("Profit", "sx-num"), headCell("Trend", "sx-trend"), headCell("Volume", "sx-num sx-hide-sm", "Shares traded in the window, both sides")]));
   const boardBody = element("tbody", "");
   boardTable.append(boardCaption, boardHead, boardBody);
-  const boardMore = element("button", "sx-more", "Show 50 more");
-  boardMore.type = "button";
-  boardPanel.append(boardNote, element("div", "sx-scroll", undefined, [boardTable]), boardMore);
-  let boardSize = 50;
+  const boardScroll = element("div", "sx-scroll", undefined, [boardTable]);
+  const boardPager = pager("Board pages", () => {
+    renderBoard();
+    keepInView(boardScroll);
+  });
+  boardPanel.append(boardNote, boardScroll, boardPager.element);
   let board: Trader[] = [];
   let boardLoad: AbortController | undefined;
-  boardMore.addEventListener("click", () => {
-    boardSize = Math.min(1000, boardSize + 50);
-    loadBoard();
-  });
 
   const trendObserver = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(onTrendVisible, { rootMargin: "200px" });
   const trendQueue = new WeakMap<Element, Trader>();
@@ -200,7 +201,7 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     busy(boardPanel, true);
     if (!board.length) boardBody.replaceChildren(...skeletonRows(8, 5));
     try {
-      const traders = await api.leaderboard({ window: state.window, category: state.category, limit: boardSize, signal: load.signal });
+      const traders = await api.leaderboard({ window: state.window, category: state.category, limit: 100, signal: load.signal });
       if (load.signal.aborted) return;
       board = traders;
       renderBoard();
@@ -218,13 +219,14 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     boardNote.textContent = `Ranked by profit ${state.window === "all" ? "since they joined" : state.window === "day" ? "today" : `this ${state.window}`}${state.category === "overall" ? "" : ` in ${CATEGORY_LABELS[state.category].toLowerCase()} markets`}. Pick a trader to see what they hold.`;
     if (!board.length) {
       boardBody.replaceChildren(stateRow(5, "Nobody on this board yet. Try a longer window."));
-      boardMore.hidden = true;
+      boardPager.update(0);
       return;
     }
+    boardPager.update(board.length);
     trendObserver?.disconnect();
     const trends: HTMLElement[] = [];
     boardBody.replaceChildren(
-      ...board.map((trader) => {
+      ...board.slice((boardPager.page - 1) * PAGE, boardPager.page * PAGE).map((trader) => {
         const tr = element("tr", "sx-row");
         const trend = element("td", "sx-trend");
         trend.append(element("span", "sx-spark is-empty"));
@@ -245,7 +247,6 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
       }),
     );
     for (const trend of trends) trendObserver?.observe(trend);
-    boardMore.hidden = board.length < boardSize || boardSize >= 1000;
   }
 
   function onTrendVisible(entries: IntersectionObserverEntry[]) {
@@ -278,7 +279,11 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
   const flowProgress = element("div", "sx-progress");
   flowProgress.setAttribute("role", "status");
   const flowList = element("ol", "sx-flow");
-  flowPanel.append(flowNote, flowTools, flowProgress, flowList);
+  const flowPager = pager("Flow pages", () => {
+    renderFlow();
+    keepInView(flowList);
+  });
+  flowPanel.append(flowNote, flowTools, flowProgress, flowList, flowPager.element);
   let flowRows: FlowRow[] = [];
   let flowLoad: AbortController | undefined;
   let flowKey = "";
@@ -293,6 +298,8 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     busy(flowPanel, true);
     flowRows = [];
     openRows.clear();
+    flowPager.reset();
+    flowPager.update(0);
     flowList.replaceChildren(...Array.from({ length: 5 }, () => element("li", "sx-flow-item is-skeleton")));
     const windowLabel = WINDOWS.find((item) => item.key === state.window)!.label.toLowerCase();
     flowNote.textContent = `Open positions of the top ${depth} traders by profit (${windowLabel}${state.category === "overall" ? "" : `, ${CATEGORY_LABELS[state.category].toLowerCase()}`}), added up by outcome. Markets priced under 2¢ or over 98¢ are left out.`;
@@ -345,10 +352,12 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
   function renderFlow() {
     if (!flowRows.length) {
       flowList.replaceChildren(stateItem("None of these traders holds an open position here right now."));
+      flowPager.update(0);
       return;
     }
     const rows = sortFlow(flowRows.slice(), state.flowSort).slice(0, 80);
-    flowList.replaceChildren(...rows.map(flowItem));
+    flowPager.update(rows.length);
+    flowList.replaceChildren(...rows.slice((flowPager.page - 1) * PAGE, flowPager.page * PAGE).map(flowItem));
   }
 
   function flowItem(row: FlowRow): HTMLLIElement {
@@ -388,20 +397,27 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     const thead = element("thead", "");
     thead.append(tableRow("tr", [headCell("Trader", "sx-who"), headCell("Held", "sx-num"), headCell("Paid", "sx-num"), headCell("Open profit", "sx-num")]));
     const tbody = element("tbody", "");
-    for (const holding of row.holders) {
-      const tr = element("tr", "sx-row");
-      tr.append(
-        traderCell(holding.trader, () => openWallet(holding.trader.wallet, summary)),
-        cell("sx-num", formatUsd(holding.position.value)),
-        cell("sx-num sx-muted", formatCents(holding.position.avgPrice)),
-        cell(`sx-num ${tone(holding.position.unrealized)}`, formatPnl(holding.position.unrealized)),
+    const holderPager = pager("Holder pages", drawHolders);
+    function drawHolders() {
+      holderPager.update(row.holders.length);
+      tbody.replaceChildren(
+        ...row.holders.slice((holderPager.page - 1) * PAGE, holderPager.page * PAGE).map((holding) => {
+          const tr = element("tr", "sx-row");
+          tr.append(
+            traderCell(holding.trader, () => openWallet(holding.trader.wallet, summary)),
+            cell("sx-num", formatUsd(holding.position.value)),
+            cell("sx-num sx-muted", formatCents(holding.position.avgPrice)),
+            cell(`sx-num ${tone(holding.position.unrealized)}`, formatPnl(holding.position.unrealized)),
+          );
+          return tr;
+        }),
       );
-      tbody.append(tr);
     }
+    drawHolders();
     table.append(thead, tbody);
     const against = row.against > 0 ? element("p", "sx-note", `The same traders hold ${formatUsd(row.against)} on the other side of this market.`) : null;
     const link = externalLink(marketUrl(row.eventSlug, row.slug), "Open on Polymarket");
-    detail.append(element("div", "sx-scroll", undefined, [table]), ...(against ? [against] : []), link);
+    detail.append(element("div", "sx-scroll", undefined, [table]), holderPager.element, ...(against ? [against] : []), link);
     item.append(summary, detail);
     return item;
   }
@@ -437,7 +453,12 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
   tapeHead.append(tableRow("tr", [headCell("When", "sx-when"), headCell("Trader", "sx-who"), headCell("Trade", "sx-what"), headCell("Price", "sx-num sx-hide-sm"), headCell("Size", "sx-num")]));
   const tapeBody = element("tbody", "");
   tapeTable.append(tapeHead, tapeBody);
-  tapePanel.append(tapeTools, tapeNote, element("div", "sx-scroll", undefined, [tapeTable]));
+  const tapeScroll = element("div", "sx-scroll", undefined, [tapeTable]);
+  const tapePager = pager("Tape pages", () => {
+    renderTape();
+    keepInView(tapeScroll);
+  });
+  tapePanel.append(tapeTools, tapeNote, tapeScroll, tapePager.element);
 
   let tapeFeed: Tape | undefined;
   let trades: Trade[] = [];
@@ -491,7 +512,9 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
 
   function renderTape(fresh = new Set<string>()) {
     liveDot.classList.remove("is-stale");
-    const shown = trades.filter((trade) => trade.usd >= state.minUsd && (!state.sharpsOnly || sharpWallets.has(trade.wallet))).slice(0, 150);
+    const matching = trades.filter((trade) => trade.usd >= state.minUsd && (!state.sharpsOnly || sharpWallets.has(trade.wallet))).slice(0, 100);
+    tapePager.update(matching.length);
+    const shown = matching.slice((tapePager.page - 1) * PAGE, tapePager.page * PAGE);
     tapeNote.textContent = `Every trade of ${formatUsd(state.minUsd)} or more across Polymarket${state.sharpsOnly ? `, by the top 250 traders on ${boardName(state)}.` : `. A star marks one of the top 250 on ${boardName(state)}.`}`;
     if (!shown.length) {
       tapeBody.replaceChildren(stateRow(5, tapeFeed && primed ? "No trades this size yet. They show up here as they happen." : "Listening for trades…"));
@@ -547,23 +570,52 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
 
   /* ---------- Wallet panel ---------- */
 
-  const scrim = element("div", "sx-scrim");
-  const panel = element("aside", "sx-wallet");
-  panel.setAttribute("role", "dialog");
-  panel.setAttribute("aria-modal", "true");
-  panel.tabIndex = -1;
-  scrim.hidden = true;
-  panel.hidden = true;
-  root.append(scrim, panel);
-  scrim.addEventListener("click", () => setState({ wallet: null }));
-  panel.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      setState({ wallet: null });
-    } else if (event.key === "Tab") {
-      trapFocus(panel, event);
-    }
+  // A modal dialog sits in the top layer, so it covers the screen even when a parent of the app is transformed,
+  // and it keeps focus inside without help.
+  const dialog = element("dialog", "sx-wallet");
+  const sheet = element("div", "sx-wallet-inner");
+  dialog.append(sheet);
+  root.append(dialog);
+  // A click on the dimmed page lands on the dialog itself, outside its content.
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) setState({ wallet: null });
   });
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    setState({ wallet: null });
+  });
+
+  // On a phone the wallet is a sheet: pull it down by its top to close it.
+  const narrow = typeof matchMedia === "undefined" ? null : matchMedia("(max-width: 560px)");
+  let drag: { y: number; t: number; dy: number } | null = null;
+  sheet.addEventListener("pointerdown", (event) => {
+    const target = event.target as Element;
+    if (!narrow?.matches || !target.closest(".sx-wallet-head, .sx-grab") || target.closest("a, button")) return;
+    drag = { y: event.clientY, t: performance.now(), dy: 0 };
+    try {
+      sheet.setPointerCapture(event.pointerId);
+    } catch {
+      // A pointer that is already gone can't be captured; the drag still follows it while it lasts.
+    }
+    dialog.style.transition = "none";
+  });
+  sheet.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const dy = event.clientY - drag.y;
+    // A pull upward gives a little and stops; a pull down follows the finger.
+    drag.dy = dy > 0 ? dy : dy / 6;
+    dialog.style.transform = `translateY(${drag.dy}px)`;
+  });
+  const release = () => {
+    if (!drag) return;
+    const { dy, t } = drag;
+    drag = null;
+    dialog.style.transition = "";
+    dialog.style.transform = "";
+    if (dy > dialog.offsetHeight * 0.25 || dy / Math.max(1, performance.now() - t) > 0.5) setState({ wallet: null });
+  };
+  sheet.addEventListener("pointerup", release);
+  sheet.addEventListener("pointercancel", release);
   let walletLoad: AbortController | undefined;
   let opener: HTMLElement | null = null;
   let shownWallet: string | null = null;
@@ -578,8 +630,7 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     shownWallet = wallet;
     walletLoad?.abort();
     if (!wallet) {
-      panel.hidden = true;
-      scrim.hidden = true;
+      if (dialog.open) dialog.close();
       root.classList.remove("has-wallet");
       opener?.focus({ preventScroll: true });
       opener = null;
@@ -588,14 +639,12 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     const load = (walletLoad = new AbortController());
     const signal = load.signal;
     const known = board.find((trader) => trader.wallet === wallet) ?? sharpWallets.get(wallet);
-    panel.hidden = false;
-    scrim.hidden = false;
     root.classList.add("has-wallet");
 
     const close = iconButton("sx-icon-button sx-close", "Close", ICONS.close);
     close.addEventListener("click", () => setState({ wallet: null }));
     const name = element("h2", "sx-wallet-name", known ? displayName(known.name, wallet) : shortWallet(wallet));
-    panel.setAttribute("aria-label", `Trader ${name.textContent}`);
+    dialog.setAttribute("aria-label", `Trader ${name.textContent}`);
     const address = element("div", "sx-wallet-id");
     const copy = iconButton("sx-icon-button sx-copy", "Copy the wallet address", ICONS.copy);
     copy.addEventListener("click", async () => {
@@ -626,7 +675,7 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
         const trader = standing ?? known;
         if (trader?.name) {
           name.textContent = displayName(trader.name, wallet);
-          panel.setAttribute("aria-label", `Trader ${name.textContent}`);
+          dialog.setAttribute("aria-label", `Trader ${name.textContent}`);
           const fresh = avatar(trader.name, wallet, trader.image, "is-large");
           face.replaceWith(fresh);
           face = fresh;
@@ -645,8 +694,12 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     chart.append(element("span", "sx-chart-empty"));
     for (const section of [positions, record, recent]) section.append(element("div", "sx-skeleton-block"));
     const body = element("div", "sx-wallet-body", undefined, [stats, chart, positions, record, recent]);
-    panel.replaceChildren(top, body);
-    requestAnimationFrame(() => close.focus({ preventScroll: true }));
+    const grab = element("span", "sx-grab");
+    grab.setAttribute("aria-hidden", "true");
+    sheet.replaceChildren(grab, top, body);
+    body.scrollTop = 0;
+    if (!dialog.open) dialog.showModal();
+    close.focus({ preventScroll: true });
 
     api
       .stats(wallet, { signal })
@@ -682,7 +735,7 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
       .then((open) => {
         if (signal.aborted) return;
         const total = open.reduce((sum, position) => sum + (Number.isFinite(position.value) ? position.value : 0), 0);
-        positions.replaceChildren(sectionHead("Open positions", open.length ? `${formatUsd(total)} in ${open.length}${open.length === 100 ? "+" : ""}` : ""), open.length ? positionList(open.slice(0, 40)) : element("p", "sx-note", "Nothing open right now."));
+        positions.replaceChildren(sectionHead("Open positions", open.length ? `${formatUsd(total)} in ${open.length}${open.length === 100 ? "+" : ""}` : ""), open.length ? positionList(open) : element("p", "sx-note", "Nothing open right now."));
       })
       .catch(() => positions.replaceChildren(sectionHead("Open positions", ""), element("p", "sx-note", "Couldn't load positions.")));
 
@@ -726,25 +779,35 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
 
   function positionList(open: Position[]): HTMLElement {
     const list = element("ul", "sx-positions");
-    for (const position of open) {
-      const li = element("li", "sx-position");
-      const link = element("a", "sx-position-title", position.title);
-      link.href = marketUrl(position.eventSlug, position.slug);
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      const top = element("div", "sx-position-top", undefined, [marketIcon(position.icon, position.title), link]);
-      const facts = element("div", "sx-position-facts");
-      facts.append(
-        outcomeChip(position.outcome),
-        element("span", "sx-muted", `${formatCents(position.avgPrice)} → ${formatCents(position.price)}`),
-        element("span", "sx-grow"),
-        element("span", "sx-num", formatUsd(position.value)),
-        element("span", `sx-num ${tone(position.unrealized)}`, formatPnl(position.unrealized)),
-      );
-      li.append(top, facts);
-      list.append(li);
+    const positionPager = pager("Position pages", () => {
+      draw();
+      keepInView(list);
+    });
+    function draw() {
+      positionPager.update(open.length);
+      list.replaceChildren(...open.slice((positionPager.page - 1) * PAGE, positionPager.page * PAGE).map(positionItem));
     }
-    return list;
+    draw();
+    return element("div", "", undefined, [list, positionPager.element]);
+  }
+
+  function positionItem(position: Position): HTMLLIElement {
+    const li = element("li", "sx-position");
+    const link = element("a", "sx-position-title", position.title);
+    link.href = marketUrl(position.eventSlug, position.slug);
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    const top = element("div", "sx-position-top", undefined, [marketIcon(position.icon, position.title), link]);
+    const facts = element("div", "sx-position-facts");
+    facts.append(
+      outcomeChip(position.outcome),
+      element("span", "sx-muted", `${formatCents(position.avgPrice)} → ${formatCents(position.price)}`),
+      element("span", "sx-grow"),
+      element("span", "sx-num", formatUsd(position.value)),
+      element("span", `sx-num ${tone(position.unrealized)}`, formatPnl(position.unrealized)),
+    );
+    li.append(top, facts);
+    return li;
   }
 
   function extreme(label: string, position: Position): HTMLElement {
@@ -778,9 +841,11 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
 
     const scopeChanged = !before || before.window !== state.window || before.category !== state.category;
     if (scopeChanged) {
-      boardSize = 50;
       board = [];
+      boardPager.reset();
     }
+    if (before && before.flowSort !== state.flowSort) flowPager.reset();
+    if (!before || scopeChanged || before.minUsd !== state.minUsd || before.sharpsOnly !== state.sharpsOnly) tapePager.reset();
     if (state.view === "board" && (scopeChanged || before?.view !== "board" && !board.length)) loadBoard();
     if (state.view === "flow" && (scopeChanged || before?.view !== "flow" || before?.flowSort !== state.flowSort)) loadFlow();
     if (before && before.minUsd !== state.minUsd) tapeFeed?.setMinUsd(state.minUsd);
@@ -1086,16 +1151,76 @@ function hue(text: string): number {
   return hash % 360;
 }
 
-function trapFocus(container: HTMLElement, event: KeyboardEvent) {
-  const focusable = [...container.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((node) => !node.closest("[hidden]"));
-  if (!focusable.length) return;
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
+interface Pager {
+  readonly element: HTMLElement;
+  readonly page: number;
+  /** Sets how many items there are, and draws the page numbers. */
+  update(total: number): void;
+  /** Back to the first page, for a new list. */
+  reset(): void;
+}
+
+function pager(label: string, onPage: (page: number) => void): Pager {
+  const nav = element("nav", "sx-pager");
+  nav.setAttribute("aria-label", label);
+  let page = 1;
+  let pages = 1;
+
+  function go(next: number) {
+    page = Math.min(Math.max(1, next), pages);
+    draw();
+    // The buttons are drawn again, so the focus moves to the page now showing.
+    nav.querySelector<HTMLElement>('[aria-current="page"]')?.focus({ preventScroll: true });
+    onPage(page);
   }
+
+  function draw() {
+    nav.hidden = pages <= 1;
+    if (pages <= 1) {
+      nav.replaceChildren();
+      return;
+    }
+    const previous = iconButton("sx-page sx-page-step", "Previous page", ICONS.back);
+    previous.disabled = page === 1;
+    previous.addEventListener("click", () => go(page - 1));
+    const next = iconButton("sx-page sx-page-step", "Next page", ICONS.chevron);
+    next.disabled = page === pages;
+    next.addEventListener("click", () => go(page + 1));
+    const numbers = pageList(page, pages).map((number) => {
+      if (!number) {
+        const gap = element("span", "sx-page-gap", "…");
+        gap.setAttribute("aria-hidden", "true");
+        return gap;
+      }
+      const button = element("button", "sx-page", String(number));
+      button.type = "button";
+      button.setAttribute("aria-label", `Page ${number}`);
+      if (number === page) button.setAttribute("aria-current", "page");
+      button.addEventListener("click", () => go(number));
+      return button;
+    });
+    nav.replaceChildren(previous, ...numbers, next);
+  }
+
+  return {
+    element: nav,
+    get page() {
+      return page;
+    },
+    update(total) {
+      pages = Math.max(1, Math.ceil(total / PAGE));
+      if (page > pages) page = pages;
+      draw();
+    },
+    reset() {
+      page = 1;
+    },
+  };
+}
+
+// After a page change the list's top comes back into view, so the new page starts where the eye is.
+function keepInView(target: HTMLElement) {
+  if (target.getBoundingClientRect().top >= 0) return;
+  const still = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ block: "start", behavior: still ? "auto" : "smooth" });
 }
