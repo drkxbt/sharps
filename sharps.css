@@ -387,6 +387,10 @@
 .sx-page:disabled { opacity: 0.35; cursor: default; }
 .sx-page .sx-svg { width: 16px; height: 16px; }
 .sx-page-gap { min-width: 20px; color: var(--sx-faint); text-align: center; }
+.sx-page[aria-busy="true"] { opacity: 0.6; cursor: progress; }
+.sx-feed-status { max-width: none; margin: 10px 0 0; text-align: center; font-variant-numeric: tabular-nums; }
+.sx-feed-status:empty { display: none; }
+.sx-feed-status .sx-icon-button { width: 30px; height: 30px; margin-left: 4px; vertical-align: middle; }
 
 .sx-state {
   height: 140px;

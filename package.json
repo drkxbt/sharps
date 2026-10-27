@@ -1,6 +1,6 @@
 {
   "name": "@drkxbt/sharps",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "See where Polymarket's best traders have their money: the markets the top wallets are piling into and at what price, every large trade as it happens, each wallet's positions and record, and the leaderboard by category. Public data, no key, no dependencies.",
   "license": "MIT",
   "author": "drk",

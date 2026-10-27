@@ -1,4 +1,4 @@
-import { CATEGORIES, client, isWallet, type Category, type Client, type ClientOptions, type Position, type Trade, type Trader, type Window } from "./api.js";
+import { CATEGORIES, client, isWallet, type Category, type Client, type ClientOptions, type Position, type Trade, type TradePage, type Trader, type Window } from "./api.js";
 import { displayName, EMPTY, formatAge, formatCents, formatCentsChange, formatPercent, formatPnl, formatUsd, shortWallet } from "./format.js";
 import { flow, inCategory, pageList, rebateShare, sortFlow, sparkline, trackRecord, type FlowRow, type FlowSort } from "./model.js";
 import { tape, type Tape } from "./tape.js";
@@ -76,6 +76,9 @@ const FLOW_SORTS: { key: FlowSort; label: string; hint: string }[] = [
 const TAPE_SIZES = [1000, 5000, 10_000, 50_000, 100_000];
 // Long lists show twenty at a time, with page numbers under them.
 const PAGE = 20;
+// Trades are read a thousand at a time, the most the API gives in one page; the tape keeps up to five thousand.
+const TRADE_READ = 1000;
+const TAPE_KEEP = 5000;
 const BOARD_PREFIX: Record<Window, string> = { day: "today's", week: "this week's", month: "this month's", all: "the all-time" };
 const PNL_WINDOWS: Record<Window, { interval: "1d" | "1w" | "1m" | "all"; fidelity: "1h" | "3h" | "1d" }> = {
   day: { interval: "1d", fidelity: "1h" },
@@ -454,14 +457,25 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
   const tapeBody = element("tbody", "");
   tapeTable.append(tapeHead, tapeBody);
   const tapeScroll = element("div", "sx-scroll", undefined, [tapeTable]);
-  const tapePager = pager("Tape pages", () => {
-    renderTape();
-    keepInView(tapeScroll);
-  });
-  tapePanel.append(tapeTools, tapeNote, tapeScroll, tapePager.element);
+  const tapePager = pager(
+    "Tape pages",
+    () => {
+      renderTape();
+      keepInView(tapeScroll);
+      // Landing on the last page reads the next thousand older trades, so the next page is there when wanted.
+      if (tapePager.page === tapePager.pages && tapeOlder) loadOlderTrades();
+    },
+    { has: () => Boolean(tapeOlder), load: () => loadOlderTrades() },
+  );
+  const tapeStatus = element("p", "sx-note sx-feed-status");
+  tapeStatus.setAttribute("aria-live", "polite");
+  tapePanel.append(tapeTools, tapeNote, tapeScroll, tapePager.element, tapeStatus);
 
   let tapeFeed: Tape | undefined;
   let trades: Trade[] = [];
+  let tapeOlder: string | null = null;
+  let tapeOlderRead: Promise<boolean> | null = null;
+  let tapeOlderFailed = false;
   let primed = false;
   let notify = false;
   const sharpWallets = new Map<string, Trader>();
@@ -491,12 +505,21 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     if (wanted && !tapeFeed) {
       tapeFeed = tape(api, {
         minUsd: state.minUsd,
-        onTrades(fresh) {
+        backlog: TRADE_READ,
+        onTrades(fresh, read) {
+          if (read.backlog) {
+            // A backlog starts the list over: the size it was read at is the size it shows.
+            trades = fresh.slice().sort((a, b) => b.time - a.time);
+            tapeOlder = read.next;
+            tapeOlderFailed = false;
+            primed = true;
+            renderTape();
+            return;
+          }
           const known = new Set(trades.map((trade) => trade.id));
           const added = fresh.filter((trade) => !known.has(trade.id));
-          trades = [...added, ...trades].sort((a, b) => b.time - a.time).slice(0, 400);
-          if (primed) notifyAbout(added);
-          primed = true;
+          trades = [...added, ...trades].sort((a, b) => b.time - a.time).slice(0, TAPE_KEEP);
+          notifyAbout(added);
           renderTape(new Set(added.map((trade) => trade.id)));
         },
         onError(error) {
@@ -510,9 +533,50 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     }
   }
 
+  async function loadOlderTrades(): Promise<boolean> {
+    if (!tapeOlder) return false;
+    if (tapeOlderRead) return tapeOlderRead;
+    const cursor = tapeOlder;
+    const minUsd = state.minUsd;
+    tapeOlderFailed = false;
+    tapeOlderRead = (async () => {
+      drawTapeStatus(true);
+      try {
+        const page = await api.tradePage({ minUsd, limit: TRADE_READ, cursor });
+        // The size changed while this was reading: its trades belong to the old feed.
+        if (minUsd !== state.minUsd || cursor !== tapeOlder) return false;
+        const known = new Set(trades.map((trade) => trade.id));
+        trades = [...trades, ...page.trades.filter((trade) => !known.has(trade.id))].slice(0, TAPE_KEEP);
+        tapeOlder = trades.length >= TAPE_KEEP ? null : page.next;
+        return true;
+      } catch {
+        tapeOlderFailed = true;
+        return false;
+      } finally {
+        tapeOlderRead = null;
+        renderTape();
+      }
+    })();
+    return tapeOlderRead;
+  }
+
+  // Under the pages: how far back the tape reaches, and whether it is reading further.
+  function drawTapeStatus(loading = Boolean(tapeOlderRead)) {
+    const oldest = trades[trades.length - 1];
+    const parts: Node[] = [];
+    if (oldest) parts.push(document.createTextNode(`${trades.length.toLocaleString("en-US")} trades, back to ${formatAge(oldest.time)} ago`));
+    if (loading) parts.push(document.createTextNode(`${parts.length ? ". " : ""}Reading older trades…`));
+    else if (tapeOlderFailed) {
+      parts.push(document.createTextNode(`${parts.length ? ". " : ""}Couldn't read older trades.`));
+      parts.push(retryButton(() => loadOlderTrades()));
+    }
+    tapeStatus.replaceChildren(...parts);
+  }
+
   function renderTape(fresh = new Set<string>()) {
     liveDot.classList.remove("is-stale");
-    const matching = trades.filter((trade) => trade.usd >= state.minUsd && (!state.sharpsOnly || sharpWallets.has(trade.wallet))).slice(0, 100);
+    drawTapeStatus();
+    const matching = trades.filter((trade) => trade.usd >= state.minUsd && (!state.sharpsOnly || sharpWallets.has(trade.wallet)));
     tapePager.update(matching.length);
     const shown = matching.slice((tapePager.page - 1) * PAGE, tapePager.page * PAGE);
     tapeNote.textContent = `Every trade of ${formatUsd(state.minUsd)} or more across Polymarket${state.sharpsOnly ? `, by the top 250 traders on ${boardName(state)}.` : `. A star marks one of the top 250 on ${boardName(state)}.`}`;
@@ -757,24 +821,70 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
       })
       .catch(() => record.replaceChildren(sectionHead("Record", ""), element("p", "sx-note", "Couldn't load the record.")));
 
+    walletTrades(wallet, recent, signal);
+  }
+
+  function walletTrades(wallet: string, box: HTMLElement, signal: AbortSignal) {
+    let list: Trade[] = [];
+    let next: string | null = null;
+    let reading: Promise<boolean> | null = null;
+    const items = element("ul", "sx-trades");
+    const tradePager = pager(
+      "Trade pages",
+      () => {
+        draw();
+        keepInView(items);
+        if (tradePager.page === tradePager.pages && next) readMore();
+      },
+      { has: () => Boolean(next), load: () => readMore() },
+    );
+
+    function draw() {
+      tradePager.update(list.length);
+      items.replaceChildren(...list.slice((tradePager.page - 1) * PAGE, tradePager.page * PAGE).map(tradeItem));
+      const count = list.length ? `${list.length.toLocaleString("en-US")}${next ? "+" : ""}` : "";
+      box.replaceChildren(sectionHead("Trades", count), list.length ? items : element("p", "sx-note", "No trades yet."), tradePager.element);
+    }
+
+    function readMore(): Promise<boolean> {
+      if (!next) return Promise.resolve(false);
+      if (reading) return reading;
+      const cursor = next;
+      reading = api
+        .tradePage({ wallet, limit: TRADE_READ, cursor, signal })
+        .then((page) => {
+          if (signal.aborted) return false;
+          const known = new Set(list.map((trade) => trade.id));
+          list = [...list, ...page.trades.filter((trade) => !known.has(trade.id))];
+          next = page.next;
+          draw();
+          return true;
+        })
+        .catch(() => false)
+        .finally(() => (reading = null));
+      return reading;
+    }
+
     api
-      .trades({ wallet, limit: 12, signal })
-      .then((list) => {
+      .tradePage({ wallet, limit: TRADE_READ, signal })
+      .then((page: TradePage) => {
         if (signal.aborted) return;
-        const items = element("ul", "sx-trades");
-        for (const trade of list) {
-          const li = element("li", "sx-trade");
-          li.append(
-            element("span", `sx-side ${trade.side === "BUY" ? "is-buy" : "is-sell"}`, trade.side === "BUY" ? "Bought" : "Sold"),
-            element("span", "sx-trade-text", `${trade.outcome} · ${trade.title}`),
-            element("span", "sx-num", formatUsd(trade.usd)),
-            element("span", "sx-num sx-muted", `${formatCents(trade.price)} · ${formatAge(trade.time)}`),
-          );
-          items.append(li);
-        }
-        recent.replaceChildren(sectionHead("Latest trades", ""), list.length ? items : element("p", "sx-note", "No trades yet."));
+        list = page.trades;
+        next = page.next;
+        draw();
       })
-      .catch(() => recent.replaceChildren(sectionHead("Latest trades", ""), element("p", "sx-note", "Couldn't load trades.")));
+      .catch(() => box.replaceChildren(sectionHead("Trades", ""), element("p", "sx-note", "Couldn't load trades.")));
+  }
+
+  function tradeItem(trade: Trade): HTMLLIElement {
+    const li = element("li", "sx-trade");
+    li.append(
+      element("span", `sx-side ${trade.side === "BUY" ? "is-buy" : "is-sell"}`, trade.side === "BUY" ? "Bought" : "Sold"),
+      element("span", "sx-trade-text", `${trade.outcome} · ${trade.title}`),
+      element("span", "sx-num", formatUsd(trade.usd)),
+      element("span", "sx-num sx-muted", `${formatCents(trade.price)} · ${formatAge(trade.time)}`),
+    );
+    return li;
   }
 
   function positionList(open: Position[]): HTMLElement {
@@ -848,7 +958,12 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     if (!before || scopeChanged || before.minUsd !== state.minUsd || before.sharpsOnly !== state.sharpsOnly) tapePager.reset();
     if (state.view === "board" && (scopeChanged || before?.view !== "board" && !board.length)) loadBoard();
     if (state.view === "flow" && (scopeChanged || before?.view !== "flow" || before?.flowSort !== state.flowSort)) loadFlow();
-    if (before && before.minUsd !== state.minUsd) tapeFeed?.setMinUsd(state.minUsd);
+    if (before && before.minUsd !== state.minUsd) {
+      trades = [];
+      tapeOlder = null;
+      tapeOlderFailed = false;
+      tapeFeed?.setMinUsd(state.minUsd);
+    }
     if (state.view === "tape" || notify) {
       if (scopeChanged || before?.view !== "tape") loadSharps();
       if (before && (before.minUsd !== state.minUsd || before.sharpsOnly !== state.sharpsOnly || before.view !== state.view)) renderTape();
@@ -1154,13 +1269,15 @@ function hue(text: string): number {
 interface Pager {
   readonly element: HTMLElement;
   readonly page: number;
+  readonly pages: number;
   /** Sets how many items there are, and draws the page numbers. */
   update(total: number): void;
   /** Back to the first page, for a new list. */
   reset(): void;
 }
 
-function pager(label: string, onPage: (page: number) => void): Pager {
+/** `more` is for lists that can read further: past the last page, Next reads more and then turns to it. */
+function pager(label: string, onPage: (page: number) => void, more?: { has: () => boolean; load: () => Promise<boolean> }): Pager {
   const nav = element("nav", "sx-pager");
   nav.setAttribute("aria-label", label);
   let page = 1;
@@ -1175,8 +1292,8 @@ function pager(label: string, onPage: (page: number) => void): Pager {
   }
 
   function draw() {
-    nav.hidden = pages <= 1;
-    if (pages <= 1) {
+    nav.hidden = pages <= 1 && !more?.has();
+    if (nav.hidden) {
       nav.replaceChildren();
       return;
     }
@@ -1184,8 +1301,16 @@ function pager(label: string, onPage: (page: number) => void): Pager {
     previous.disabled = page === 1;
     previous.addEventListener("click", () => go(page - 1));
     const next = iconButton("sx-page sx-page-step", "Next page", ICONS.chevron);
-    next.disabled = page === pages;
-    next.addEventListener("click", () => go(page + 1));
+    next.disabled = page === pages && !more?.has();
+    next.addEventListener("click", async () => {
+      if (page < pages) return go(page + 1);
+      if (!more?.has()) return;
+      next.disabled = true;
+      next.setAttribute("aria-busy", "true");
+      await more.load();
+      if (page < pages) go(page + 1);
+      else draw();
+    });
     const numbers = pageList(page, pages).map((number) => {
       if (!number) {
         const gap = element("span", "sx-page-gap", "…");
@@ -1206,6 +1331,9 @@ function pager(label: string, onPage: (page: number) => void): Pager {
     element: nav,
     get page() {
       return page;
+    },
+    get pages() {
+      return pages;
     },
     update(total) {
       pages = Math.max(1, Math.ceil(total / PAGE));

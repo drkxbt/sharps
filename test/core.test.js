@@ -269,3 +269,33 @@ test("pagers list every page up to seven, then the ends and the neighbours", () 
   assert.deepEqual(pageList(6, 12), [1, 0, 5, 6, 7, 0, 12]);
   assert.deepEqual(pageList(12, 12), [1, 0, 8, 9, 10, 11, 12]);
 });
+
+test("a trade page carries the cursor that reads further back", async () => {
+  const fetch = fakeFetch([["/v2/trades", (url) => ({ data: [{ proxy_wallet: A, side: "BUY", token_id: "1", size: 1, price: 0.5, timestamp: url.includes("cursor=") ? 100 : 200, transaction_hash: "0x1" }], pagination: { has_more: !url.includes("cursor="), next_cursor: url.includes("cursor=") ? null : "abc" } })]]);
+  const api = client({ fetch });
+  const first = await api.tradePage({ minUsd: 10_000, limit: 1000 });
+  assert.equal(first.next, "abc");
+  const older = await api.tradePage({ minUsd: 10_000, limit: 1000, cursor: first.next });
+  assert.equal(older.next, null);
+  assert.equal(older.trades[0].time, 100_000);
+  assert.ok(fetch.calls[1].includes("filter_type=CASH&filter_amount=10000&cursor=abc"), "the size is sent again with the cursor");
+  assert.deepEqual(await api.trades({ minUsd: 10_000, limit: 1000 }), first.trades);
+});
+
+test("the tape reads a deep backlog first, and again whole when the size changes", async () => {
+  const rows = [{ proxy_wallet: A, side: "BUY", token_id: "1", size: 40000, price: 0.5, timestamp: 100, transaction_hash: "0x1" }];
+  const fetch = fakeFetch([["/v2/trades", { data: rows, pagination: { next_cursor: "older" } }]]);
+  const reads = [];
+  const feed = tape(client({ fetch }), { minUsd: 10_000, limit: 100, backlog: 1000, every: 2000, onTrades: (trades, read) => reads.push([trades.length, read.backlog, read.next]) });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  feed.refresh();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  feed.setMinUsd(5000);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  feed.stop();
+  // The second poll found nothing new and says nothing; the new size hands the same trade on again.
+  assert.deepEqual(reads, [[1, true, "older"], [1, true, "older"]]);
+  assert.ok(fetch.calls[0].includes("limit=1000"));
+  assert.ok(fetch.calls[1].includes("limit=100&"));
+  assert.ok(fetch.calls[2].includes("limit=1000&filter_type=CASH&filter_amount=5000"));
+});

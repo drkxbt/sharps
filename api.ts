@@ -93,6 +93,13 @@ export interface WalletStats {
   rebates: number;
 }
 
+export interface TradePage {
+  /** Newest first. */
+  trades: Trade[];
+  /** The cursor for the next, older page; null at the end of the feed. */
+  next: string | null;
+}
+
 export interface PnlPoint {
   time: number;
   pnl: number;
@@ -122,8 +129,11 @@ export interface Client {
   standing(wallet: string, options?: Read & { window?: Window; category?: Category }): Promise<(Trader & { volumeRank: number }) | null>;
   stats(wallet: string, options?: Read): Promise<WalletStats | null>;
   pnl(wallet: string, options?: Read & { interval?: "1d" | "1w" | "1m" | "all"; fidelity?: "1h" | "3h" | "12h" | "1d" }): Promise<PnlPoint[]>;
-  /** Trades across all of Polymarket, or one wallet's. `fresh` skips the cache, for polling. */
+  /** Trades across all of Polymarket, or one wallet's, newest first. `fresh` skips the cache, for polling. */
   trades(options?: Read & { wallet?: string; minUsd?: number; limit?: number; fresh?: boolean }): Promise<Trade[]>;
+  /** One page of the same feed, up to 1000 trades, with the cursor that reads further back. Pass the same wallet
+   *  and size with the cursor: the cursor carries only where to resume. */
+  tradePage(options?: Read & { wallet?: string; minUsd?: number; limit?: number; cursor?: string; fresh?: boolean }): Promise<TradePage>;
   /** The tag slugs of each event ("politics", "sports"…), keyed by event id. */
   eventTags(ids: string[], options?: Read): Promise<Map<string, string[]>>;
 }
@@ -304,6 +314,17 @@ export function client(options: ClientOptions = {}): Client {
   };
   const cap = (value: number | undefined, fallback: number) => Math.min(1000, Math.max(1, Math.round(value ?? fallback)));
 
+  async function tradePage({ wallet, minUsd, limit: count, cursor, fresh, signal }: Read & { wallet?: string; minUsd?: number; limit?: number; cursor?: string; fresh?: boolean } = {}): Promise<TradePage> {
+    const body = (await get(
+      dataBase,
+      "/v2/trades",
+      { user: wallet, limit: cap(count, 100), filter_type: minUsd ? "CASH" : undefined, filter_amount: minUsd || undefined, cursor },
+      { signal, fresh },
+    )) as Row | null;
+    const next = (body?.pagination as Row | undefined)?.next_cursor;
+    return { trades: rows(body).map(toTrade), next: typeof next === "string" && next ? next : null };
+  }
+
   return {
     async leaderboard({ window = "month", category = "overall", by = "pnl", limit: count, signal } = {}) {
       const body = await get(dataBase, "/v2/leaderboard", { time_period: window, category, sort_by: by === "volume" ? "VOLUME" : "PNL", limit: cap(count, 50) }, { signal });
@@ -346,15 +367,11 @@ export function client(options: ClientOptions = {}): Client {
       return points.map((point) => ({ time: ms(point.timestamp), pnl: num(point.position_pnl) })).filter((point) => Number.isFinite(point.pnl));
     },
 
-    async trades({ wallet, minUsd, limit: count, fresh, signal } = {}) {
-      const body = await get(
-        dataBase,
-        "/v2/trades",
-        { user: wallet, limit: cap(count, 100), filter_type: minUsd ? "CASH" : undefined, filter_amount: minUsd || undefined },
-        { signal, fresh },
-      );
-      return rows(body).map(toTrade);
+    async trades(options = {}) {
+      return (await tradePage(options)).trades;
     },
+
+    tradePage,
 
     async eventTags(ids, { signal } = {}) {
       const wanted = [...new Set(ids.filter(Boolean))].filter((id) => !tags.has(id));

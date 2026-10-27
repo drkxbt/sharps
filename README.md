@@ -7,8 +7,8 @@ See where Polymarket's best traders have their money. Flow adds up the open posi
 Trackers like this usually keep the useful parts behind a paid plan: the price a wallet got in at, alerts when a big wallet trades, more than a handful of wallets. This one is MIT licensed: use it in a product, change it, ship it.
 
 - **Flow.** The open positions of the board's top traders, added up outcome by outcome: how many of them hold it, how much it's worth, the average price they paid, where it trades now, and what they hold on the other side of the same market. Sort by the most traders, the most money, the furthest in profit or the latest. Markets priced under 2¢ or over 98¢ are left out, since they're all but decided.
-- **The tape.** Every trade of $1K, $5K, $10K, $50K or $100K and up across Polymarket, polled every few seconds. Narrow it to traders on the board, and turn on browser notifications for their large trades.
-- **Wallets.** Profit since joining, markets traded, biggest win and join date; profit over the last thirty days; open positions with the price paid and the price now; a win rate over the last 200 closed positions, with the best and worst; the latest trades. A wallet whose income is mostly maker rebates and rewards is marked as a likely market maker, since its profit comes from providing liquidity more than from calling outcomes.
+- **The tape.** Every trade of $1K, $5K, $10K, $50K or $100K and up across Polymarket, polled every few seconds. It starts with the last thousand trades of that size, about a day's worth at $10K, and reads a thousand further back each time you reach its last page. Narrow it to traders on the board, and turn on browser notifications for their large trades.
+- **Wallets.** Profit since joining, markets traded, biggest win and join date; profit over the last thirty days; open positions with the price paid and the price now; a win rate over the last 200 closed positions, with the best and worst; and every trade the wallet has made, read a thousand at a time. A wallet whose income is mostly maker rebates and rewards is marked as a likely market maker, since its profit comes from providing liquidity more than from calling outcomes.
 - **The board.** Polymarket's own leaderboard, by profit, for all markets or one category (politics, sports, crypto, culture, economy, tech, finance, mentions, weather, esports) over today, this week, this month or all time. Each row carries a small chart of the trader's profit over the same window.
 - **Twenty to a page.** Every list, from Flow and the tape to the board, a market's holders and a wallet's positions, shows twenty at a time with page numbers under it.
 - **Shareable.** The view, window, category, sort, tape size and open wallet are plain state, handed to you on every change, so a page can keep them in its URL.
@@ -75,7 +75,7 @@ const record = trackRecord(await api.positions(top[0].wallet, { status: "closed"
 const feed = tape(api, { minUsd: 25_000, onTrades: (trades) => console.log(trades) });
 ```
 
-`client()` reads the board (`leaderboard`, `standing`), a wallet (`positions`, `stats`, `pnl`, `trades`) and the tags of events (`eventTags`). Every number comes back as a JavaScript number, every time in milliseconds, and every wallet in lower case. A value the API didn't give is `NaN`, never zero.
+`client()` reads the board (`leaderboard`, `standing`), a wallet (`positions`, `stats`, `pnl`, `trades`), the trade feed a page at a time with a cursor (`tradePage`) and the tags of events (`eventTags`). Every number comes back as a JavaScript number, every time in milliseconds, and every wallet in lower case. A value the API didn't give is `NaN`, never zero.
 
 ## Theming
 
@@ -104,7 +104,7 @@ Showing Polymarket's data where Polymarket itself is blocked may have legal cons
 
 - The board is `GET /v2/leaderboard` on Polymarket's Data API, which ranks up to a thousand traders by profit for a window and a category.
 - Flow reads the top traders' open positions (`GET /v2/positions`, a hundred per wallet, largest first), keeps those worth $100 or more, and adds them up by outcome token. The average price is the cost of the shares still held divided by their number, so it's weighted by size. For a category other than all markets, each position's event is looked up on the Gamma API and kept when its tags match.
-- The Data API has no public stream of fills, so the tape polls the global trade feed (`GET /v2/trades`) for trades above the chosen size and passes on only the ones it hasn't seen.
+- The Data API has no public stream of fills, so the tape polls the global trade feed (`GET /v2/trades`) for trades above the chosen size and passes on only the ones it hasn't seen. Its first read takes a thousand trades, the most one page holds, and the page's cursor reads further back.
 - A wallet's record counts its last 200 closed positions; a position that closed within fifty cents of even counts as neither a win nor a loss.
 
 ## What it doesn't do yet
