@@ -3,3 +3,4 @@ export { displayName, EMPTY, formatAge, formatCents, formatCentsChange, formatPe
 export { CATEGORY_TAGS, flow, inCategory, pageList, rebateShare, sortFlow, sparkline, trackRecord, type FlowOptions, type FlowRow, type FlowSort, type Holding, type TrackRecord } from "./model.js";
 export { tape, type Tape, type TapeOptions, type TapeRead } from "./tape.js";
 export { sharps, type Sharps, type SharpsOptions, type SharpsState, type View } from "./app.js";
+export { walletAvatar } from "./avatar.js";

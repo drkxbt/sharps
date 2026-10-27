@@ -246,7 +246,7 @@ export function client(options: ClientOptions = {}): Client {
   const gammaBase = (options.gamma ?? "https://gamma-api.polymarket.com").replace(/\/$/, "");
   const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   const ttl = options.ttl ?? 30_000;
-  const limit = Math.max(1, options.concurrency ?? 6);
+  const limit = Math.max(1, options.concurrency ?? 16);
 
   const cache = new Map<string, { at: number; value: Promise<unknown> }>();
   const tags = new Map<string, string[]>();

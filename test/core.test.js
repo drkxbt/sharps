@@ -30,6 +30,11 @@ const C = "0x" + "c".repeat(40);
 
 test("money, prices and percentages read the way Polymarket writes them", () => {
   assert.equal(formatUsd(1_240_000), "$1.24M");
+  assert.equal(formatUsd(250_368_062), "$250M");
+  assert.equal(formatUsd(100_000), "$100K");
+  assert.equal(formatUsd(199_600_000), "$200M");
+  assert.equal(formatUsd(999_600_000), "$1B");
+  assert.equal(formatPnl(-120_000), "−$120K");
   assert.equal(formatUsd(48_210), "$48.2K");
   assert.equal(formatUsd(820.4), "$820");
   assert.equal(formatUsd(-3_400_000), "−$3.4M");

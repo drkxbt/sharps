@@ -307,23 +307,18 @@
 .sx-verified { width: 14px; height: 14px; color: var(--sx-up); stroke-width: 2.4; }
 
 .sx-avatar {
-  --sx-hue: 160;
   position: relative;
-  display: inline-grid;
-  place-items: center;
+  display: inline-block;
   flex: none;
   width: 30px;
   height: 30px;
   overflow: hidden;
   border-radius: 50%;
-  background: hsl(var(--sx-hue) 52% 58%);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
 }
+.sx-avatar svg { display: block; width: 100%; height: 100%; }
 .sx-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.sx-avatar.is-large { width: 56px; height: 56px; font-size: 20px; }
+.sx-avatar::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08); }
+.sx-avatar.is-large { width: 56px; height: 56px; }
 
 .sx-icon {
   --sx-hue: 200;

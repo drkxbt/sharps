@@ -2,6 +2,7 @@ import { CATEGORIES, client, isWallet, type Category, type Client, type ClientOp
 import { displayName, EMPTY, formatAge, formatCents, formatCentsChange, formatPercent, formatPnl, formatUsd, shortWallet } from "./format.js";
 import { flow, inCategory, pageList, rebateShare, sortFlow, sparkline, trackRecord, type FlowRow, type FlowSort } from "./model.js";
 import { tape, type Tape } from "./tape.js";
+import { walletAvatar } from "./avatar.js";
 
 export type View = "board" | "flow" | "tape";
 
@@ -105,7 +106,7 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
   const images = options.images ?? true;
   const imageUrl = options.image ?? ((url: string) => url);
   const live = options.live ?? true;
-  const depth = Math.max(5, Math.min(200, options.depth ?? 50));
+  const depth = Math.max(5, Math.min(1000, options.depth ?? 200));
   const state: SharpsState = {
     view: "flow",
     window: "month",
@@ -204,7 +205,7 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     busy(boardPanel, true);
     if (!board.length) boardBody.replaceChildren(...skeletonRows(8, 5));
     try {
-      const traders = await api.leaderboard({ window: state.window, category: state.category, limit: 100, signal: load.signal });
+      const traders = await api.leaderboard({ window: state.window, category: state.category, limit: 1000, signal: load.signal });
       if (load.signal.aborted) return;
       board = traders;
       renderBoard();
@@ -305,15 +306,19 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     flowPager.update(0);
     flowList.replaceChildren(...Array.from({ length: 5 }, () => element("li", "sx-flow-item is-skeleton")));
     const windowLabel = WINDOWS.find((item) => item.key === state.window)!.label.toLowerCase();
-    flowNote.textContent = `Open positions of the top ${depth} traders by profit (${windowLabel}${state.category === "overall" ? "" : `, ${CATEGORY_LABELS[state.category].toLowerCase()}`}), added up by outcome. Markets priced under 2¢ or over 98¢ are left out.`;
+    flowNote.textContent = `Open positions of the top ${depth} traders by profit (${windowLabel}${state.category === "overall" ? "" : `, ${CATEGORY_LABELS[state.category].toLowerCase()}`}), added up by outcome. Each trader's 50 largest positions count, and markets priced under 2¢ or over 98¢ are left out.`;
     try {
       progress(`Reading the board…`, 0);
       const traders = await api.leaderboard({ window: state.window, category: state.category, limit: depth, signal });
       let done = 0;
+      let missed = 0;
+      // A trader's 50 largest positions hold nearly all of what they have in play (97% for the month's top 200 when
+      // measured) at half the download of their largest 100.
       const holdings = await Promise.all(
         traders.map(async (trader) => {
-          const positions = await api.positions(trader.wallet, { limit: 100, minUsd: 100, signal }).catch((error) => {
+          const positions = await api.positions(trader.wallet, { limit: 50, minUsd: 100, signal }).catch((error) => {
             if (signal.aborted) throw error;
+            missed++;
             return [] as Position[];
           });
           progress(`Reading positions: ${++done} of ${traders.length} traders`, done / traders.length);
@@ -330,8 +335,9 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
         picked = holdings.map(({ trader, positions }) => ({ trader, positions: positions.filter((position) => inCategory(tags.get(position.eventId) ?? [], state.category)) }));
       }
       if (signal.aborted) return;
+      if (missed) flowNote.textContent += ` ${missed} of the ${traders.length} couldn't be read just now, so they're missing; try again in a minute.`;
       flowRows = flow(picked, { minValue: 100 });
-      flowKey = key;
+      flowKey = missed ? "" : key;
       progress("", 1);
       renderFlow();
     } catch (error) {
@@ -372,7 +378,7 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     title.append(marketIcon(row.icon, row.title), element("span", "sx-flow-name", row.title));
     const outcome = outcomeChip(row.outcome);
     const faces = element("span", "sx-faces");
-    for (const holding of row.holders.slice(0, 4)) faces.append(avatar(holding.trader.name, holding.trader.wallet, holding.trader.image));
+    for (const holding of row.holders.slice(0, 4)) faces.append(avatar(holding.trader.wallet, holding.trader.image));
     const count = element("span", "sx-faces-count", `${row.holders.length} ${row.holders.length === 1 ? "trader" : "traders"}`);
     faces.append(count);
 
@@ -725,7 +731,7 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     const profile = externalLink(`https://polymarket.com/profile/${wallet}`, "Polymarket profile");
     links.append(profile);
     const top = element("header", "sx-wallet-head");
-    let face = avatar(known?.name ?? "", wallet, known?.image ?? "", "is-large");
+    let face = avatar(wallet, known?.image ?? "", "is-large");
     const place = element("p", "sx-place");
     top.append(face, element("div", "sx-wallet-title", undefined, [name, place, address, links]), close);
 
@@ -740,7 +746,7 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
         if (trader?.name) {
           name.textContent = displayName(trader.name, wallet);
           dialog.setAttribute("aria-label", `Trader ${name.textContent}`);
-          const fresh = avatar(trader.name, wallet, trader.image, "is-large");
+          const fresh = avatar(wallet, trader.image, "is-large");
           face.replaceWith(fresh);
           face = fresh;
         }
@@ -974,12 +980,11 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
 
   /* ---------- Small builders that need options ---------- */
 
-  function avatar(name: string, wallet: string, image: string, extra = ""): HTMLElement {
-    const disc = element("span", `sx-avatar ${extra}`);
+  /** The trader's profile picture over the avatar drawn from their address, which shows when there is none. */
+  function avatar(wallet: string, image: string, extra = ""): HTMLElement {
+    const disc = element("span", `sx-avatar ${extra}`.trim());
     disc.setAttribute("aria-hidden", "true");
-    disc.style.setProperty("--sx-hue", String(hue(wallet)));
-    const letter = displayName(name, wallet).replace(/^0x/i, "")[0] ?? "?";
-    disc.textContent = letter.toUpperCase();
+    disc.append(walletAvatar(wallet));
     const src = images && image ? imageUrl(image) : "";
     if (src) {
       const img = element("img", "");
@@ -1016,7 +1021,7 @@ export function sharps(container: HTMLElement, options: SharpsOptions = {}): Sha
     const td = element("td", "sx-who");
     const button = element("button", "sx-trader");
     button.type = "button";
-    button.append(avatar(trader.name, trader.wallet, trader.image));
+    button.append(avatar(trader.wallet, trader.image));
     const name = element("span", "sx-trader-name", displayName(trader.name, trader.wallet));
     button.append(name);
     if (sharp) {
