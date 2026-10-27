@@ -1,0 +1,21 @@
+sharps
+Copyright 2026 drk
+
+Licensed under the MIT License. See LICENSE.
+
+The data shown comes from Polymarket's public Data API and Gamma API. Polymarket is a trademark of its
+owner; this project is not affiliated with, endorsed by or connected to Polymarket. Trader names, profile
+pictures, market titles and market icons are Polymarket's and its users', shown as the API serves them.
+
+demo/sample/recorded.json.gz holds responses recorded from those public APIs on October 27, 2026 (UTC), trimmed to
+the fields the library reads. The recording tour replays them so the preview is the same on every loop. They
+are real data from that date, not made up, and they are not current.
+
+The demo page ships the Geist and Geist Mono typefaces by Vercel, in collaboration with basement.studio, in
+demo/fonts/. They are licensed under the SIL Open Font License 1.1. See demo/fonts/OFL.txt.
+
+The recording tour (demo/tour.html) draws an iPhone and a MacBook running Safari to show the demo at their
+sizes. iPhone, MacBook and Safari are trademarks of Apple Inc.; the drawings are approximations made for this
+demo and imply no connection with Apple.
+
+The library itself bundles no fonts, icons or images.

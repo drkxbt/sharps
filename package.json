@@ -1,0 +1,48 @@
+{
+  "name": "@drkxbt/sharps",
+  "version": "0.1.0",
+  "description": "See where Polymarket's best traders have their money: the markets the top wallets are piling into and at what price, every large trade as it happens, each wallet's positions and record, and the leaderboard by category. Public data, no key, no dependencies.",
+  "license": "MIT",
+  "author": "drk",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./sharps.css": "./sharps.css"
+  },
+  "files": [
+    "dist",
+    "sharps.css"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.json && node --test \"test/*.test.js\"",
+    "demo": "tsc -p tsconfig.json && node demo/serve.js"
+  },
+  "devDependencies": {
+    "typescript": ">=5.4"
+  },
+  "keywords": [
+    "polymarket",
+    "prediction-markets",
+    "smart-money",
+    "whale-tracker",
+    "leaderboard",
+    "wallet-tracker",
+    "crypto",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/drkxbt/sharps.git"
+  },
+  "homepage": "https://github.com/drkxbt/sharps#readme"
+}
