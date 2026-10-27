@@ -48,7 +48,7 @@ export async function run(name, app) {
     }
     lift();
   }
-  const tab = (label) => [...document.querySelectorAll(".sx-tab")].find((button) => button.textContent === label);
+  const tab = (label) => [...document.querySelectorAll(".sx-tab")].find((button) => button.querySelector(".sx-tab-label")?.textContent === label);
   const holder = (n) => document.querySelectorAll(".sx-flow-detail:not([hidden]) .sx-trader")[n];
 
   function reset() {

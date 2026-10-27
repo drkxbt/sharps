@@ -5,6 +5,7 @@
   --sx-bg: #ffffff;
   --sx-sunk: #f6f5f1;
   --sx-raised: #ffffff;
+  --sx-pick: #ffffff;
   --sx-text: #141416;
   --sx-muted: #66676b;
   --sx-faint: #a3a39e;
@@ -37,6 +38,7 @@
   --sx-bg: #0e0f11;
   --sx-sunk: #141518;
   --sx-raised: #17181c;
+  --sx-pick: #26282d;
   --sx-text: #ecebe6;
   --sx-muted: #94938e;
   --sx-faint: #5c5c57;
@@ -59,6 +61,7 @@
     --sx-bg: #0e0f11;
     --sx-sunk: #141518;
     --sx-raised: #17181c;
+    --sx-pick: #26282d;
     --sx-text: #ecebe6;
     --sx-muted: #94938e;
     --sx-faint: #5c5c57;
@@ -80,9 +83,8 @@
 .sx *,
 .sx *::before,
 .sx *::after { box-sizing: border-box; }
-.sx button,
-.sx select,
-.sx input { font: inherit; color: inherit; }
+/* No weight of its own, so each control's class still sets its type and colour over this. */
+:where(.sx) :where(button, select, input) { font: inherit; color: inherit; }
 .sx [hidden] { display: none !important; }
 .sx :focus-visible { outline: 2px solid var(--sx-text); outline-offset: 2px; }
 
@@ -117,24 +119,50 @@
   margin-bottom: 12px;
 }
 
-.sx-tabs { display: flex; gap: 4px; }
+.sx-tabs {
+  position: relative;
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--sx-sunk);
+  box-shadow: inset 0 0 0 1px var(--sx-line);
+}
+
+/* The selected tab's ground. The script sizes it to the selected tab and moves it there. */
+.sx-tab-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 8px;
+  background: var(--sx-pick);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08), 0 0 0 1px var(--sx-line);
+  transition: transform 280ms var(--sx-ease);
+}
+.sx-tab-pill.is-still { transition: none; }
 
 .sx-tab {
   position: relative;
-  min-height: 40px;
-  padding: 0 14px;
+  display: grid;
+  align-content: start;
+  gap: 1px;
+  min-height: 48px;
+  padding: 6px 14px;
   border: 0;
   border-radius: 8px;
   background: none;
-  color: var(--sx-muted);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  color: var(--sx-text);
+  text-align: left;
   cursor: pointer;
-  transition: color 160ms ease, background-color 160ms ease;
+  transition: background-color 160ms ease, transform 160ms var(--sx-ease);
 }
-.sx-tab:hover { color: var(--sx-text); background: var(--sx-hover); }
-.sx-tab[aria-selected="true"] { color: var(--sx-text); background: var(--sx-sunk); }
+.sx-tab-label { font-size: 15px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; }
+.sx-tab-hint { color: var(--sx-muted); font-size: 12px; line-height: 1.3; text-wrap: balance; }
+@media (hover: hover) {
+  .sx-tab[aria-selected="false"]:hover { background: var(--sx-hover); }
+}
 .sx-tab:active { transform: scale(0.97); }
 
 .sx-segmented {
@@ -164,7 +192,7 @@
 .sx-segment:hover { color: var(--sx-text); }
 .sx-segment[aria-pressed="true"] {
   color: var(--sx-text);
-  background: var(--sx-raised);
+  background: var(--sx-pick);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.08), 0 0 0 1px var(--sx-line);
 }
 
@@ -780,7 +808,8 @@ html:has(.sx-wallet[open]) { overflow: hidden; }
 @container (max-width: 560px) {
   .sx-hide-sm { display: none; }
   .sx-head { gap: 10px; }
-  .sx-tab { padding: 0 12px; }
+  .sx-tabs { flex: 1 1 100%; }
+  .sx-tab { padding: 6px 10px; }
   .sx-trend { width: 76px; }
   .sx-trend .sx-spark { width: 64px; }
   .sx-table td { padding: 6px 10px; }
