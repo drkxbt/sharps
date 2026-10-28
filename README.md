@@ -2,6 +2,8 @@
 
 See where Polymarket's best traders have their money. Flow adds up the open positions of the top wallets, so you can see which markets they're piling into, what they paid and how one-sided they are. The tape shows every large trade as it happens, with a star on the ones from traders on the board. Open any wallet for its profit over time, what it holds and its record, or browse the board by category and window. Everything comes from Polymarket's public API, with no key and no account. Plain TypeScript, no dependencies.
 
+Use it live at [drk.vc/sharps](https://drk.vc/sharps).
+
 ![A MacBook and an iPhone running the tracker in Safari: Flow lists the markets the month's top thirty traders hold, the top one opens to show who holds it and what they paid, the biggest holder's wallet opens in a card in the middle of the screen with their profit and open positions, the tape of large trades narrows to traders on the board, and the board shows the month's top traders, each with a chart of their profit; on the iPhone the wallet rises from the bottom as a sheet](demo/preview.webp)
 
 Trackers like this usually keep the useful parts behind a paid plan: the price a wallet got in at, alerts when a big wallet trades, more than a handful of wallets. This one is MIT licensed: use it in a product, change it, ship it.
